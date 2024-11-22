@@ -32,8 +32,9 @@ jobs:
         shell: 'bash'
         run: |
           for dir in ./tests/*/; do
-            echo ""
+            echo "------------------"
             echo "Running test: $dir"
+            echo "------------------"
             pushd "$dir"
             ../../bazeld build //...
             popd
