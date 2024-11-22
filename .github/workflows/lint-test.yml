@@ -22,7 +22,7 @@ jobs:
   # Unit tests - bazeld
   bazeld_test:
     runs-on:
-      labels: ubuntu-latest
+      labels: 'ubuntu-latest'
     steps:
       - uses: 'actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11' # ratchet:actions/checkout@v4
         with:

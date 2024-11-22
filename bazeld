@@ -55,7 +55,7 @@ if [[ $RUN_AS_SELF == "true" ]]; then
     extra_docker_args+=(--user "$(id -u)":"$(id -g)")
     extra_docker_args+=(-e "USER=$USER")
     extra_docker_args+=(-e HOME="/tmp/$USER")
-    mkdir -p "$HOME/.cache/bazeld"
+    mkdir -p "$BAZEL_OUTPUT_DIR"
 elif [[ "$RUN_AS_ROOT" == "true" ]]; then
     extra_docker_args+=(--group-add "0")
     extra_docker_args+=(--user "0:0")
@@ -67,8 +67,11 @@ elif [[ "$RUN_AS_ROOT" == "true" ]]; then
     BAZEL_ROOT_DIR="/tmp/bazeld/$REPO_DIGEST_SHA/"
     BAZEL_OUTPUT_DIR="/tmp/bazeld/$REPO_DIGEST_SHA/output/"
     if [[ ! -d "$BAZEL_OUTPUT_DIR" ]]; then
-        echo "Please run 'sudo mkdir -p $BAZEL_OUTPUT_DIR' and re-run this command."
-        exit 1
+        sudo mkdir -p "$BAZEL_OUTPUT_DIR" || failed_mkdir="true"
+        if [[ "$failed_mkdir" == "true" ]]; then
+            echo "Please run 'sudo mkdir -p $BAZEL_OUTPUT_DIR' and re-run this command."
+            exit 1
+        fi
     fi
 fi
 
@@ -100,11 +103,6 @@ if [[ "$ENABLE_DOCKER_IN_DOCKER" == "true" ]]; then
         extra_docker_args+=(--group-add "$(getent group docker | cut -d ':' -f 3)")
     fi
 fi
-
-function init() {
-    mkdir -p "$HOME/.cache/bazeld"
-    chmod 777 "$HOME/.cache/bazeld"
-}
 
 function stop_if_newer_version() {
     local running_container_id="$(docker ps --filter "label=$LOCAL_CONTAINER_LABEL" --filter "status=running" -q)"
@@ -158,7 +156,6 @@ function print_container_debug() {
     echo docker container stop "$container_id"
 }
 
-init
 stop_if_newer_version
 maybe_start_new_container
 
@@ -167,6 +164,6 @@ print_container_debug $local_container_id
 
 echo "Using bazel dir: $BAZEL_ROOT_DIR"
 
-{ docker exec --privileged -i"${DOCKER_TTY}" --user="0:0" \
+{ docker exec --privileged -i"${DOCKER_TTY}" \
     "$local_container_id" \
     bazel --output_base="$BAZEL_OUTPUT_DIR" --output_user_root="$BAZEL_ROOT_DIR" "$@"; } 1>&2
