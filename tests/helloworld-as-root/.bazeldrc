@@ -1,0 +1,3 @@
+IMAGE_NAME=gcr.io/bazel-public/bazel:latest
+RUN_AS_SELF=false
+RUN_AS_ROOT=true

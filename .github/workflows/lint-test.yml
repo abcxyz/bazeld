@@ -1,0 +1,41 @@
+name: 'lint_test'
+
+on:
+  push:
+    branches:
+      - 'main'
+      - 'release/**/*'
+  pull_request:
+    branches:
+      - 'main'
+      - 'release/**/*'
+
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.head_ref || github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  yaml_lint:
+    uses: 'abcxyz/pkg/.github/workflows/yaml-lint.yml@main' # ratchet:exclude
+
+  # Unit tests - bazeld
+  bazeld_test:
+    runs-on:
+      labels: ubuntu-latest
+    steps:
+      - uses: 'actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11' # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 2 # This and the most recent commit
+
+      - name: 'Test each bazeld configuration'
+        shell: 'bash'
+        run: |
+          for dir in ./tests/*/; do
+            echo "Running test: $dir"
+            pushd "$dir"
+            ../../bazeld build //...
+            popd
+            # Cleanup all bazel cache after each execution.
+            sudo rm -rf /tmp/bazeld/ $HOME/.cache/bazeld/
+          done
