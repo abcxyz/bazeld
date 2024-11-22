@@ -1,0 +1,2 @@
+BAZELD_IMAGE_NAME=gcr.io/bazel-public/bazel:latest
+BAZELD_DISABLE_TTY=true

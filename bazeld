@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+# A thin bazel wrapper that executes bazel builds/runs/tests in a docker image.
+#
+# Caches all bazel artefacts to `$HOME/.cache/bazeld/` for re-use in subsequent runs.
+#
+# Call this as if it were the `bazel` cli.
+# Example: `./bazeld build //...`
+
+set -e
+
+if [[ -f "./WORKSPACE.bazel" || -f "./WORKSPACE" || -f "./MODULE.bazel" || -f "./MODULE" ]]; then
+    echo "Running bazel in docker image..."
+else
+    echo "bazeld should be run from the root of the bazel repository"
+    exit 1
+fi
+
+if [[ -f "$HOME/.bazeldrc" ]]; then
+    source "$HOME/.bazeldrc"
+fi
+if [[ -f "./.bazeldrc" ]]; then
+    source "./.bazeldrc"
+fi
+
+readonly BAZELD_IMAGE_NAME="${BAZELD_IMAGE_NAME}"
+readonly BAZELD_RUN_AS_SELF="${BAZELD_RUN_AS_SELF:-true}"
+readonly BAZELD_RUN_AS_ROOT="${BAZELD_RUN_AS_ROOT:-false}"
+readonly BAZELD_AUTH_GCP="${BAZELD_AUTH_GCP:-true}"
+readonly BAZELD_ENABLE_DOCKER_IN_DOCKER="${BAZELD_ENABLE_DOCKER_IN_DOCKER:-true}"
+readonly BAZELD_DISABLE_TTY="${BAZELD_DISABLE_TTY}"
+readonly BAZELD_MOUNT_PASSWD="${BAZELD_MOUNT_PASSWD:-true}"
+
+if [[ "$BAZELD_IMAGE_NAME" == "" ]]; then
+    echo "[Error] BAZELD_IMAGE_NAME is required"
+    exit 1
+fi
+
+# Support an option to not set the tty param for docker exec. This is useful
+# when we want to capture raw output from bazel in the container(e.g. commands
+# like "bazel info output_path").
+readonly DOCKER_TTY="$([[ "$BAZELD_DISABLE_TTY" == "" ]] && echo "t" || echo "")"
+readonly LOCAL_CONTAINER_LABEL=bazeld
+readonly REPO_DIGEST_SHA_LABEL=repo-digest-sha
+# Get the latest SHA of the image to use.
+# We use the Image SHA instead of the Repo Digest since we can easily determine the SHA of a running container.
+readonly REPO_DIGEST="$(docker pull -q "${BAZELD_IMAGE_NAME}" 1>/dev/null && docker inspect --format='{{index .RepoDigests 0}}' "${BAZELD_IMAGE_NAME}")"
+readonly REPO_DIGEST_SHA="${REPO_DIGEST#*@sha256:}"
+# We use the repo digest SHA to bust the bazel cache every time we use a new docker image.
+BAZEL_ROOT_DIR="$HOME/.cache/bazeld/$REPO_DIGEST_SHA/"
+BAZEL_OUTPUT_DIR="$HOME/.cache/bazeld/$REPO_DIGEST_SHA/output/"
+
+extra_docker_args=()
+if [[ $BAZELD_RUN_AS_SELF == "true" ]]; then
+    extra_docker_args+=(--group-add "$(id -g)")
+    extra_docker_args+=(--user "$(id -u)":"$(id -g)")
+    extra_docker_args+=(-e "USER=$USER")
+    extra_docker_args+=(-e HOME="/tmp/$USER")
+    mkdir -p "$BAZEL_OUTPUT_DIR"
+elif [[ "$BAZELD_RUN_AS_ROOT" == "true" ]]; then
+    extra_docker_args+=(--group-add "0")
+    extra_docker_args+=(--user "0:0")
+    extra_docker_args+=(-e "USER=root")
+    extra_docker_args+=(-e HOME="/tmp/root")
+    # Bazel does not allow running in a directory owned by another user so we
+    # fake this by using tmp.
+    # https://github.com/bazelbuild/bazel/issues/6870
+    BAZEL_ROOT_DIR="/tmp/bazeld/$REPO_DIGEST_SHA/"
+    BAZEL_OUTPUT_DIR="/tmp/bazeld/$REPO_DIGEST_SHA/output/"
+    if [[ ! -d "$BAZEL_OUTPUT_DIR" ]]; then
+        sudo mkdir -p "$BAZEL_OUTPUT_DIR" || failed_mkdir="true"
+        if [[ "$failed_mkdir" == "true" ]]; then
+            echo "Please run 'sudo mkdir -p $BAZEL_OUTPUT_DIR' and re-run this command."
+            exit 1
+        fi
+    fi
+fi
+
+# Mounts user and groups so we can utilize docker in docker and run as self.
+if [[ "$BAZELD_MOUNT_PASSWD" == "true" ]]; then
+    if [[ -f "/etc/passwd.cache" ]]; then
+        extra_docker_args+=(-v "/etc/passwd.cache:/etc/passwd:ro")
+    elif [[ -f "/etc/passwd" ]]; then
+        extra_docker_args+=(-v "/etc/passwd:/etc/passwd:ro")
+    fi
+    if [[ -f "/etc/group.cache" ]]; then
+        extra_docker_args+=(-v "/etc/group.cache:/etc/group:ro")
+    elif [[ -f "/etc/passwd" ]]; then
+        extra_docker_args+=(-v "/etc/group:/etc/group:ro")
+    fi
+fi
+
+if [[ "$BAZELD_AUTH_GCP" == "true" ]]; then
+    extra_docker_args+=(-e "GOOGLE_APPLICATION_CREDENTIALS=/gcloud/.config/gcloud/application_default_credentials.json")
+    extra_docker_args+=(-e "CLOUDSDK_CONFIG=/gcloud/.config/gcloud")
+    extra_docker_args+=(-v "$HOME/.config/gcloud:/gcloud/.config/gcloud:Z")
+fi
+
+if [[ "$BAZELD_ENABLE_DOCKER_IN_DOCKER" == "true" ]]; then
+    extra_docker_args+=(-e "DOCKER_CONFIG=/docker/.docker")
+    extra_docker_args+=(-v "$HOME/.docker:/docker/.docker:ro")
+    extra_docker_args+=(-v "/var/run/docker.sock:/var/run/docker.sock")
+    if [[ "$BAZELD_MOUNT_PASSWD" == "true" ]]; then
+        extra_docker_args+=(--group-add "$(getent group docker | cut -d ':' -f 3)")
+    fi
+fi
+
+function stop_if_newer_version() {
+    local running_container_id="$(docker ps --filter "label=$LOCAL_CONTAINER_LABEL" --filter "status=running" -q)"
+    if [[ "$running_container_id" == "" ]]; then
+        return 0
+    fi
+    local running_container_repo_digest_sha="$(docker inspect --format='{{index .Config.Labels "'"$REPO_DIGEST_SHA_LABEL"'"}}' "$running_container_id")"
+    if [[ "$REPO_DIGEST_SHA" != "$running_container_repo_digest_sha" ]]; then
+        echo "Stopping running bazeld instance because there is a new 'latest' image."
+        echo "New: $REPO_DIGEST_SHA"
+        echo "Old: $running_container_repo_digest_sha"
+        docker container stop "$running_container_id" >/dev/null 2>&1
+    fi
+    local stopped_container_id="$(docker ps --filter "label=$LOCAL_CONTAINER_LABEL" --filter "status=exited" -q)"
+    if [[ -n "$stopped_container_id" ]]; then
+        echo "Cleaning up previous bazeld instance"
+        docker container rm "$stopped_container_id" >/dev/null 2>&1
+    fi
+}
+
+function maybe_start_new_container() {
+    local container_id="$(docker ps --filter "label=$LOCAL_CONTAINER_LABEL" --filter "status=running" -q)"
+    if [[ "$container_id" != "" ]]; then
+        return 0
+    fi
+    echo "Starting Bazeld in detached docker container..."
+    container_id=$(docker run --rm -dit --label "$LOCAL_CONTAINER_LABEL" --label "$REPO_DIGEST_SHA_LABEL=$REPO_DIGEST_SHA" \
+        -v "$(pwd)":"$(pwd)" \
+        -w "$(pwd)" \
+        --net=host \
+        --env="DISPLAY" \
+        -v "$BAZEL_ROOT_DIR":"$BAZEL_ROOT_DIR" \
+        "${extra_docker_args[@]}" \
+        --entrypoint bash \
+        $BAZELD_IMAGE_NAME)
+    echo "Bazeld is running in detached mode."
+}
+
+function print_container_debug() {
+    local -r container_id="$1"; shift
+    local -r is_running=$(docker container inspect -f '{{.State.Running}}' $container_id 2>&1)
+    if [[ "$is_running" =~ "Error: No such container" ]]; then
+        echo "failed to start container..."
+        exit 1
+    fi
+    echo ""
+    echo "connect to this container manually via:"
+    echo docker exec -it "$container_id" bash
+    echo ""
+    echo "stop this container manually via:"
+    echo docker container stop "$container_id"
+}
+
+stop_if_newer_version
+maybe_start_new_container
+
+local_container_id="$(docker ps --filter "label=$LOCAL_CONTAINER_LABEL" --filter "status=running" -q)"
+print_container_debug $local_container_id
+
+echo "Using bazel dir: $BAZEL_ROOT_DIR"
+
+{ docker exec --privileged -i"${DOCKER_TTY}" \
+    "$local_container_id" \
+    bazel --output_base="$BAZEL_OUTPUT_DIR" --output_user_root="$BAZEL_ROOT_DIR" "$@"; } 1>&2

@@ -1,0 +1,4 @@
+BAZELD_IMAGE_NAME=gcr.io/bazel-public/bazel:latest
+BAZELD_RUN_AS_SELF=false
+BAZELD_RUN_AS_ROOT=true
+BAZELD_DISABLE_TTY=true
