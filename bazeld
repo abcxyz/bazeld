@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# A thin bazel wrapper that executes bazel builds/runs/tests in a docker image.
-#
-# Caches all bazel artefacts to `$HOME/.cache/bazeld/` for re-use in subsequent runs.
+# A thin bazel wrapper that executes bazel builds/runs/tests in a persistent
+# docker image. For more details or to download a newer version see:
+# https://github.com/abcxyz/bazeld
 #
 # Call this as if it were the `bazel` cli.
 # Example: `./bazeld build //...`
