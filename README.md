@@ -9,27 +9,32 @@ Benefits of bazeld:
 
 * Filesystem is automatically mounted for
   * Repository root
-  * Bazel root (and cache) `$HOME/.cache/bazeld/$REPO_DIGEST_SHA/`
+  * Bazel root (and cache)
 * Handles docker in docker
 * Automatically picks up GCP auth credentials
 * Can run as root or your current USER (see [Configuration](#configuration)).
+* On every execution, reuses the container from prior runs which enables
+  re-using local bazel service and cache.
+* On every execution, automatically determines if a newer version of the target
+  docker image is available and restarts the container if so.
 
 # Installation
 
-Copy the `bazeld` script into your `~/bin` or `/usr/bin/` location.
+Copy the `bazeld` script into your `~/bin` or `/usr/bin/` location. Make sure to 
+`chmod +x ~/bin/bazeld || sudo chmod +x /usr/bin/bazeld`.
 
 # Usage
 
 ```sh
-./bazeld build //...
-./bazeld --sandbox_debug --verbose_failures test //....
-./bazeld run //:my_target
+bazeld build //...
+bazeld --sandbox_debug --verbose_failures test //....
+bazeld run //:my_target
 ```
 
 # Configuration
 
 All configuration is provided via a .bazeldrc file located in the root of the
-repo or HOME directory.
+bazel repo or $HOME directory.
 
 ```sh
 # Required - The image to run bazel commands in.
