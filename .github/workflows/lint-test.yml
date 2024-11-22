@@ -32,10 +32,12 @@ jobs:
         shell: 'bash'
         run: |
           for dir in ./tests/*/; do
+            echo ""
             echo "Running test: $dir"
             pushd "$dir"
             ../../bazeld build //...
             popd
             # Cleanup all bazel cache after each execution.
             sudo rm -rf /tmp/bazeld/ $HOME/.cache/bazeld/
+            docker stop $(docker ps -a -q)
           done
