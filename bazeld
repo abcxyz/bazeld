@@ -22,41 +22,41 @@ if [[ -f "./.bazeldrc" ]]; then
     source "./.bazeldrc"
 fi
 
-readonly IMAGE_NAME="${IMAGE_NAME}"
-readonly RUN_AS_SELF="${RUN_AS_SELF:-true}"
-readonly RUN_AS_ROOT="${RUN_AS_ROOT:-false}"
-readonly AUTH_GCP="${AUTH_GCP:-true}"
-readonly ENABLE_DOCKER_IN_DOCKER="${ENABLE_DOCKER_IN_DOCKER:-true}"
-readonly DISABLE_TTY="${DISABLE_TTY}"
-readonly MOUNT_PASSWD="${MOUNT_PASSWD:-true}"
+readonly BAZELD_IMAGE_NAME="${BAZELD_IMAGE_NAME}"
+readonly BAZELD_RUN_AS_SELF="${BAZELD_RUN_AS_SELF:-true}"
+readonly BAZELD_RUN_AS_ROOT="${BAZELD_RUN_AS_ROOT:-false}"
+readonly BAZELD_AUTH_GCP="${BAZELD_AUTH_GCP:-true}"
+readonly BAZELD_ENABLE_DOCKER_IN_DOCKER="${BAZELD_ENABLE_DOCKER_IN_DOCKER:-true}"
+readonly BAZELD_DISABLE_TTY="${BAZELD_DISABLE_TTY}"
+readonly BAZELD_MOUNT_PASSWD="${BAZELD_MOUNT_PASSWD:-true}"
 
-if [[ "$IMAGE_NAME" == "" ]]; then
-    echo "[Error] IMAGE_NAME is required"
+if [[ "$BAZELD_IMAGE_NAME" == "" ]]; then
+    echo "[Error] BAZELD_IMAGE_NAME is required"
     exit 1
 fi
 
 # Support an option to not set the tty param for docker exec. This is useful
 # when we want to capture raw output from bazel in the container(e.g. commands
 # like "bazel info output_path").
-readonly DOCKER_TTY="$([[ "$DISABLE_TTY" == "" ]] && echo "t" || echo "")"
+readonly DOCKER_TTY="$([[ "$BAZELD_DISABLE_TTY" == "" ]] && echo "t" || echo "")"
 readonly LOCAL_CONTAINER_LABEL=bazeld
 readonly REPO_DIGEST_SHA_LABEL=repo-digest-sha
 # Get the latest SHA of the image to use.
 # We use the Image SHA instead of the Repo Digest since we can easily determine the SHA of a running container.
-readonly REPO_DIGEST="$(docker pull -q "${IMAGE_NAME}" 1>/dev/null && docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE_NAME}")"
+readonly REPO_DIGEST="$(docker pull -q "${BAZELD_IMAGE_NAME}" 1>/dev/null && docker inspect --format='{{index .RepoDigests 0}}' "${BAZELD_IMAGE_NAME}")"
 readonly REPO_DIGEST_SHA="${REPO_DIGEST#*@sha256:}"
 # We use the repo digest SHA to bust the bazel cache every time we use a new docker image.
 BAZEL_ROOT_DIR="$HOME/.cache/bazeld/$REPO_DIGEST_SHA/"
 BAZEL_OUTPUT_DIR="$HOME/.cache/bazeld/$REPO_DIGEST_SHA/output/"
 
 extra_docker_args=()
-if [[ $RUN_AS_SELF == "true" ]]; then
+if [[ $BAZELD_RUN_AS_SELF == "true" ]]; then
     extra_docker_args+=(--group-add "$(id -g)")
     extra_docker_args+=(--user "$(id -u)":"$(id -g)")
     extra_docker_args+=(-e "USER=$USER")
     extra_docker_args+=(-e HOME="/tmp/$USER")
     mkdir -p "$BAZEL_OUTPUT_DIR"
-elif [[ "$RUN_AS_ROOT" == "true" ]]; then
+elif [[ "$BAZELD_RUN_AS_ROOT" == "true" ]]; then
     extra_docker_args+=(--group-add "0")
     extra_docker_args+=(--user "0:0")
     extra_docker_args+=(-e "USER=root")
@@ -76,7 +76,7 @@ elif [[ "$RUN_AS_ROOT" == "true" ]]; then
 fi
 
 # Mounts user and groups so we can utilize docker in docker and run as self.
-if [[ "$MOUNT_PASSWD" == "true" ]]; then
+if [[ "$BAZELD_MOUNT_PASSWD" == "true" ]]; then
     if [[ -f "/etc/passwd.cache" ]]; then
         extra_docker_args+=(-v "/etc/passwd.cache:/etc/passwd:ro")
     elif [[ -f "/etc/passwd" ]]; then
@@ -89,17 +89,17 @@ if [[ "$MOUNT_PASSWD" == "true" ]]; then
     fi
 fi
 
-if [[ "$AUTH_GCP" == "true" ]]; then
+if [[ "$BAZELD_AUTH_GCP" == "true" ]]; then
     extra_docker_args+=(-e "GOOGLE_APPLICATION_CREDENTIALS=/gcloud/.config/gcloud/application_default_credentials.json")
     extra_docker_args+=(-e "CLOUDSDK_CONFIG=/gcloud/.config/gcloud")
     extra_docker_args+=(-v "$HOME/.config/gcloud:/gcloud/.config/gcloud:Z")
 fi
 
-if [[ "$ENABLE_DOCKER_IN_DOCKER" == "true" ]]; then
+if [[ "$BAZELD_ENABLE_DOCKER_IN_DOCKER" == "true" ]]; then
     extra_docker_args+=(-e "DOCKER_CONFIG=/docker/.docker")
     extra_docker_args+=(-v "$HOME/.docker:/docker/.docker:ro")
     extra_docker_args+=(-v "/var/run/docker.sock:/var/run/docker.sock")
-    if [[ "$MOUNT_PASSWD" == "true" ]]; then
+    if [[ "$BAZELD_MOUNT_PASSWD" == "true" ]]; then
         extra_docker_args+=(--group-add "$(getent group docker | cut -d ':' -f 3)")
     fi
 fi
@@ -137,7 +137,7 @@ function maybe_start_new_container() {
         -v "$BAZEL_ROOT_DIR":"$BAZEL_ROOT_DIR" \
         "${extra_docker_args[@]}" \
         --entrypoint bash \
-        $IMAGE_NAME)
+        $BAZELD_IMAGE_NAME)
     echo "Bazeld is running in detached mode."
 }
 

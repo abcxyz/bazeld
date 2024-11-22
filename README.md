@@ -38,22 +38,22 @@ bazel repo or $HOME directory.
 
 ```sh
 # Required - The image to run bazel commands in.
-IMAGE_NAME=image-name:image-tag
+BAZELD_IMAGE_NAME=image-name:image-tag
 # Optional - Whether to mount GCP credentials and configure the docker container for GCP auth. Defaults to true.
-AUTH_GCP=true
+BAZELD_AUTH_GCP=true
 # Optional - Whether to configure the docker container for docker-in-docker (running docker commands in a docker container). Defaults to true.
-ENABLE_DOCKER_IN_DOCKER=true
+BAZELD_ENABLE_DOCKER_IN_DOCKER=true
 # Optional - Whether to run as the current user (self). Defaults to true.
-RUN_AS_SELF=true
+BAZELD_RUN_AS_SELF=true
 # Optional - Whether to run as root. Defaults to false.
 # If neither this or RUN_AS_SELF is set then we will default to the default user in the docker image.
-RUN_AS_ROOT=false
+BAZELD_RUN_AS_ROOT=false
 # Optional - Whether to skip mounting the passwd file. Defaults to true.
 # If this is false then you will need to make sure that your docker image is configured correctly for docker in docker.
-MOUNT_PASSWD=true
+BAZELD_MOUNT_PASSWD=true
 ```
 
 Example config:
 ```sh
-IMAGE_NAME=gcr.io/bazel-public/bazel:latest
+BAZELD_IMAGE_NAME=gcr.io/bazel-public/bazel:latest
 ```
