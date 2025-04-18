@@ -16,9 +16,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  yaml_lint:
-    uses: 'abcxyz/actions/.github/workflows/yaml-lint.yml@main' # ratchet:exclude
-
   # Unit tests - bazeld
   bazeld_test:
     runs-on:
@@ -32,13 +29,13 @@ jobs:
         shell: 'bash'
         run: |
           for dir in ./tests/*/; do
-            echo "------------------"
-            echo "Running test: $dir"
-            echo "------------------"
-            pushd "$dir"
+            echo "----------------------------------------"
+            echo "Running test: ${dir}"
+            echo "----------------------------------------"
+            pushd "${dir}"
             ../../bazeld build //...
             popd
             # Cleanup all bazel cache after each execution.
-            sudo rm -rf /tmp/bazeld/ $HOME/.cache/bazeld/
-            docker stop $(docker ps -a -q)
+            sudo rm -rf /tmp/bazeld/ "${HOME}/.cache/bazeld/"
+            docker stop "$(docker ps -a -q)"
           done
